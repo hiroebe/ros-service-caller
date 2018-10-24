@@ -34,13 +34,35 @@ $ ros-service-caller <service>
 $ ros-service-caller -f data.yaml <service>
 ```
 
-エディタを変更するには，環境変数`$EDITOR`を設定します(デフォルトはvim)．
+## Configuration (Optional)
+
+`~/.config/ros-service-caller/config.yaml`に設定を書きます．今のところ，設定項目は以下の2つだけです．
+
+```yaml
+editor: vim     # 起動するエディタ(デフォルトはvim)
+selectcmd: fzf  # filterを行うコマンド
+```
+
+selectcmdは，次の2つで動作確認をしています．
+
+- fzf
+- peco
+
+これらのコマンドは，別途インストールしておく必要があります．selectcmdを指定していると，`ros-service-caller`を引数なしで実行することができます．
+
+```
+$ ros-service-caller
+```
+
+実行すると，selectcmdで指定したツールにより，サービス名を絞り込んで選択できます．
+
+また，環境変数`$EDITOR`により，起動するエディタを指定することもできます．
 
 ```
 $ EDITOR=nano ros-service-caller <service>
 ```
 
-または，`~/.zshrc`に次のように追記します．
+あるいは，`~/.zshrc`に次のように追記します．
 
 ```
 export EDITOR=nano
