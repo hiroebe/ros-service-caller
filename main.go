@@ -1,12 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
-	"strings"
 
 	"github.com/urfave/cli"
 )
@@ -20,12 +20,12 @@ func execCommand(command string) error {
 	return err
 }
 
-func execCommandOutput(command string) (string, error) {
+func execCommandOutput(command string) ([]byte, error) {
 	out, err := exec.Command("sh", "-c", command).Output()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return strings.TrimRight(string(out), "\n"), nil
+	return bytes.TrimRight(out, "\n"), nil
 }
 
 func action(c *cli.Context) error {
@@ -37,36 +37,40 @@ func action(c *cli.Context) error {
 	var err error
 	service := c.Args().Get(0)
 
-	if filename := c.String("file"); filename != "" {
-		err = callServiceFromFile(service, filename)
+	if file := c.String("file"); file != "" {
+		err = callServiceFromFile(service, file)
 		if err != nil {
 			return err
 		}
 		return nil
 	}
 
-	filename := "tmp_ros_service_caller.yaml"
+	f, err := ioutil.TempFile("", "*.yaml")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
 
 	proto, err := getSrvProto(service)
 	if err != nil {
 		return err
 	}
-	err = writeContent(filename, proto)
+	_, err = f.Write(proto)
 	if err != nil {
 		return err
 	}
-	defer execCommand("rm " + filename)
 
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
 		editor = "vim"
 	}
-	err = execCommand(editor + " " + filename)
+	err = execCommand(editor + " " + f.Name())
 	if err != nil {
 		return err
 	}
 
-	err = callServiceFromFile(service, filename)
+	err = callServiceFromFile(service, f.Name())
 	if err != nil {
 		return err
 	}
@@ -86,27 +90,17 @@ func callServiceFromFile(service, file string) error {
 	return nil
 }
 
-func getSrvProto(service string) (string, error) {
+func getSrvProto(service string) ([]byte, error) {
 	srv, err := execCommandOutput("rosservice type " + service)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	content, err := execCommandOutput("rosmsg-proto srv " + srv)
+	content, err := execCommandOutput("rosmsg-proto srv " + string(srv))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	content = strings.Trim(content, `"`)
+	content = bytes.Trim(content, `"`)
 	return content, nil
-}
-
-func writeContent(filename, content string) error {
-	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	fmt.Fprint(file, content)
-	return nil
 }
 
 func main() {
