@@ -7,14 +7,35 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/urfave/cli"
+	"gopkg.in/yaml.v2"
 )
 
 const (
-	version   = "0.0.1"
-	selectcmd = "fzf"
+	version = "0.0.1"
 )
+
+type config struct {
+	Editor    string `yaml:"editor"`
+	SelectCmd string `yaml:"selectcmd"`
+}
+
+func (c *config) load() {
+	file := filepath.Join(os.Getenv("HOME"), ".config", "ros-service-caller", "config.yaml")
+	_, err := os.Stat(file)
+	if err != nil {
+		return
+	}
+	f, err := ioutil.ReadFile(file)
+	if err != nil {
+		return
+	}
+	_ = yaml.Unmarshal(f, c)
+
+	return
+}
 
 func execCommand(command string) error {
 	cmd := exec.Command("sh", "-c", command)
@@ -36,9 +57,16 @@ func execCommandOutput(command string) ([]byte, error) {
 func action(c *cli.Context) error {
 	var err error
 	var service string
+	var cfg config
+
+	cfg.load()
 
 	if c.NArg() == 0 {
-		service, err = selectService()
+		if cfg.SelectCmd == "" {
+			fmt.Println("selectcmd is not set.")
+			return nil
+		}
+		service, err = selectService(cfg.SelectCmd)
 		if err != nil {
 			return err
 		}
@@ -54,6 +82,15 @@ func action(c *cli.Context) error {
 		return nil
 	}
 
+	err = actionWithTempFile(service, cfg)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func actionWithTempFile(service string, cfg config) error {
 	f, err := ioutil.TempFile("", "*.yaml")
 	if err != nil {
 		return err
@@ -70,7 +107,10 @@ func action(c *cli.Context) error {
 		return err
 	}
 
-	editor := os.Getenv("EDITOR")
+	editor := cfg.Editor
+	if editor == "" {
+		editor = os.Getenv("EDITOR")
+	}
 	if editor == "" {
 		editor = "vim"
 	}
@@ -87,7 +127,7 @@ func action(c *cli.Context) error {
 	return nil
 }
 
-func selectService() (string, error) {
+func selectService(selectcmd string) (string, error) {
 	f, err := ioutil.TempFile("", "")
 	if err != nil {
 		return "", err
