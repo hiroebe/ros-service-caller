@@ -11,6 +11,11 @@ import (
 	"github.com/urfave/cli"
 )
 
+const (
+	version   = "0.0.1"
+	selectcmd = "fzf"
+)
+
 func execCommand(command string) error {
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Stderr = os.Stderr
@@ -29,13 +34,17 @@ func execCommandOutput(command string) ([]byte, error) {
 }
 
 func action(c *cli.Context) error {
-	if c.NArg() == 0 {
-		cli.ShowAppHelp(c)
-		return nil
-	}
-
 	var err error
-	service := c.Args().Get(0)
+	var service string
+
+	if c.NArg() == 0 {
+		service, err = selectService()
+		if err != nil {
+			return err
+		}
+	} else {
+		service = c.Args().Get(0)
+	}
 
 	if file := c.String("file"); file != "" {
 		err = callServiceFromFile(service, file)
@@ -78,12 +87,37 @@ func action(c *cli.Context) error {
 	return nil
 }
 
+func selectService() (string, error) {
+	f, err := ioutil.TempFile("", "")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+
+	err = execCommand(fmt.Sprintf("rosservice list | %s > %s", selectcmd, f.Name()))
+	if err != nil {
+		return "", err
+	}
+	out, err := ioutil.ReadFile(f.Name())
+	if err != nil {
+		return "", err
+	}
+	out = bytes.TrimRight(out, "\n")
+	return string(out), nil
+}
+
 func callServiceFromFile(service, file string) error {
 	f, err := ioutil.ReadFile(file)
 	if err != nil {
 		return err
 	}
-	err = execCommand(fmt.Sprintf(`rosservice call %s "%s"`, service, string(f)))
+	f = bytes.TrimRight(f, "\n")
+	cmd := fmt.Sprintf(`rosservice call %s "%s"`, service, string(f))
+	fmt.Println("--- IN ---")
+	fmt.Println(cmd)
+	fmt.Println("--- OUT ---")
+	err = execCommand(cmd)
 	if err != nil {
 		return err
 	}
@@ -108,7 +142,7 @@ func main() {
 	app.Name = "ros-service-caller"
 	app.Usage = "Edit args for rosservice-call with editor"
 	app.UsageText = "ros-service-caller [global options] <service>"
-	app.Version = "0.0.1"
+	app.Version = version
 	app.Action = action
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
