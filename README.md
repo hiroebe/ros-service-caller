@@ -45,8 +45,8 @@ selectcmd: fzf  # filterを行うコマンド
 
 selectcmdは，次の2つで動作確認をしています．
 
-- fzf
-- peco
+- [fzf](https://github.com/junegunn/fzf)
+- [peco](https://github.com/peco/peco)
 
 これらのコマンドは，別途インストールしておく必要があります．selectcmdを指定していると，`ros-service-caller`を引数なしで実行することができます．
 
