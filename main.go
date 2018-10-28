@@ -4,12 +4,11 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 
-	"github.com/urfave/cli"
+	"gopkg.in/alecthomas/kingpin.v2"
 	"gopkg.in/yaml.v2"
 )
 
@@ -37,94 +36,40 @@ func (c *config) load() {
 	return
 }
 
-func execCommand(command string) error {
-	cmd := exec.Command("sh", "-c", command)
-	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
-	cmd.Stdin = os.Stdin
-	err := cmd.Run()
-	return err
-}
+var (
+	cfg config
 
-func execCommandOutput(command string) ([]byte, error) {
-	out, err := exec.Command("sh", "-c", command).Output()
-	if err != nil {
-		return nil, err
-	}
-	return bytes.TrimRight(out, "\n"), nil
-}
+	app      = kingpin.New("ros-service-caller", "Edit args for rosservice-call with editor")
+	datafile = app.Flag("file", "Load yaml file").Short('f').File()
+	service  = app.Arg("service", "ROS service name").String()
+)
 
-func action(c *cli.Context) error {
+func action(c *kingpin.ParseContext) error {
 	var err error
-	var service string
-	var cfg config
 
-	cfg.load()
-
-	if c.NArg() == 0 {
+	if *service == "" {
 		if cfg.SelectCmd == "" {
 			fmt.Println("selectcmd is not set.")
 			return nil
 		}
-		service, err = selectService(cfg.SelectCmd)
+		*service, err = selectService(cfg.SelectCmd)
 		if err != nil {
 			return err
 		}
+	}
+
+	var args string
+
+	if *datafile != nil {
+		args, err = readDataFromFile(*datafile)
 	} else {
-		service = c.Args().Get(0)
+		args, err = editArgs()
 	}
-
-	if file := c.String("file"); file != "" {
-		err = callServiceFromFile(service, file)
-		if err != nil {
-			return err
-		}
-		return nil
-	}
-
-	err = actionWithTempFile(service, cfg)
 	if err != nil {
 		return err
 	}
 
-	return nil
-}
-
-func actionWithTempFile(service string, cfg config) error {
-	f, err := ioutil.TempFile("", "*.yaml")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-
-	proto, err := getSrvProto(service)
-	if err != nil {
-		return err
-	}
-	_, err = f.Write(proto)
-	if err != nil {
-		return err
-	}
-
-	editor := cfg.Editor
-	if editor == "" {
-		editor = os.Getenv("EDITOR")
-	}
-	if editor == "" {
-		editor = "vim"
-	}
-	err = execCommand(editor + " " + f.Name())
-	if err != nil {
-		return err
-	}
-
-	err = callServiceFromFile(service, f.Name())
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return callService(*service, args)
 }
 
 func selectService(selectcmd string) (string, error) {
@@ -139,29 +84,36 @@ func selectService(selectcmd string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err := ioutil.ReadFile(f.Name())
+	return readDataFromFile(f)
+}
+
+func editArgs() (string, error) {
+	f, err := ioutil.TempFile("", "*.yaml")
 	if err != nil {
 		return "", err
 	}
-	out = bytes.TrimRight(out, "\n")
-	return string(out), nil
-}
+	filename := f.Name()
+	defer os.Remove(f.Name())
 
-func callServiceFromFile(service, file string) error {
-	f, err := ioutil.ReadFile(file)
+	proto, err := getSrvProto(*service)
 	if err != nil {
-		return err
+		return "", err
 	}
-	f = bytes.TrimRight(f, "\n")
-	cmd := fmt.Sprintf(`rosservice call %s "%s"`, service, string(f))
-	fmt.Println("--- IN ---")
-	fmt.Println(cmd)
-	fmt.Println("--- OUT ---")
-	err = execCommand(cmd)
+	_, err = f.Write(proto)
 	if err != nil {
-		return err
+		return "", err
 	}
-	return nil
+
+	// Close tempfile here for editing with editor.
+	f.Close()
+
+	editor := getEditor()
+	err = execCommand(editor + " " + filename)
+	if err != nil {
+		return "", err
+	}
+
+	return readDataFromFileName(filename)
 }
 
 func getSrvProto(service string) ([]byte, error) {
@@ -177,22 +129,65 @@ func getSrvProto(service string) ([]byte, error) {
 	return content, nil
 }
 
-func main() {
-	app := cli.NewApp()
-	app.Name = "ros-service-caller"
-	app.Usage = "Edit args for rosservice-call with editor"
-	app.UsageText = "ros-service-caller [global options] <service>"
-	app.Version = version
-	app.Action = action
-	app.Flags = []cli.Flag{
-		cli.StringFlag{
-			Name:  "file, f",
-			Usage: "load yaml `FILE`",
-		},
+func getEditor() string {
+	editor := cfg.Editor
+	if editor == "" {
+		editor = os.Getenv("EDITOR")
 	}
+	if editor == "" {
+		editor = "vim"
+	}
+	return editor
+}
 
-	err := app.Run(os.Args)
+func callService(s, a string) error {
+	cmd := fmt.Sprintf(`rosservice call %s "%s"`, s, a)
+	fmt.Println("--- IN ---")
+	fmt.Println(cmd)
+	fmt.Println("--- OUT ---")
+	return execCommand(cmd)
+}
+
+func readDataFromFileName(filename string) (string, error) {
+	data, err := ioutil.ReadFile(filename)
 	if err != nil {
-		log.Fatal(err)
+		return "", err
 	}
+	data = bytes.TrimRight(data, "\n")
+	return string(data), nil
+}
+
+func readDataFromFile(f *os.File) (string, error) {
+	data, err := ioutil.ReadAll(f)
+	if err != nil {
+		return "", err
+	}
+	data = bytes.TrimRight(data, "\n")
+	return string(data), nil
+}
+
+func execCommand(command string) error {
+	cmd := exec.Command("sh", "-c", command)
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
+}
+
+func execCommandOutput(command string) ([]byte, error) {
+	out, err := exec.Command("sh", "-c", command).Output()
+	if err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(out, "\n"), nil
+}
+
+func main() {
+	app.Version(version)
+	app.HelpFlag.Short('h')
+	app.Action(action)
+
+	cfg.load()
+
+	kingpin.MustParse(app.Parse(os.Args[1:]))
 }
