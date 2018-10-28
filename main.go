@@ -25,6 +25,10 @@ var (
 func action(c *kingpin.ParseContext) error {
 	var err error
 
+	if err = execCommand("rosnode list 1>/dev/null"); err != nil {
+		return err
+	}
+
 	if *service == "" {
 		if cfg.SelectCmd == "" {
 			fmt.Println("selectcmd is not set.")
