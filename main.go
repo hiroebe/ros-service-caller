@@ -23,94 +23,107 @@ var (
 	datafile   = app.Flag("file", "Load yaml file").Short('f').File()
 	service    = serviceCmd.Arg("service", "ROS service name").String()
 	topic      = topicCmd.Arg("topic", "ROS topic name").String()
+
+	modeService = Mode{
+		name:      "service",
+		node:      service,
+		protoMode: "srv",
+		rosCmd:    "rosservice",
+	}
+	modeTopic = Mode{
+		name:      "topic",
+		node:      topic,
+		protoMode: "msg",
+		rosCmd:    "rostopic",
+	}
 )
 
-func serviceAction(c *kingpin.ParseContext) error {
-	var err error
-
-	if err = checkRoscoreRunning(); err != nil {
-		return err
-	}
-
-	if *service == "" {
-		if cfg.SelectCmd == "" {
-			fmt.Println("selectcmd is not set.")
-			return nil
-		}
-		*service, err = selectNode("service", cfg.SelectCmd)
-		if err != nil {
-			return err
-		}
-	}
-
-	var args string
-
-	if *datafile != nil {
-		args, err = readDataFromFile(*datafile)
-		if err != nil {
-			return err
-		}
-	} else {
-		srv, err := execCommandOutput("rosservice type " + *service)
-		if err != nil {
-			return err
-		}
-		proto, err := getProto("srv", string(srv))
-		if err != nil {
-			return err
-		}
-		args, err = editArgs(proto)
-		if err != nil {
-			return err
-		}
-	}
-
-	return callService(*service, args)
+type Mode struct {
+	name      string
+	node      *string
+	protoMode string
+	rosCmd    string
 }
 
-func topicAction(c *kingpin.ParseContext) error {
-	var err error
-
-	if err = checkRoscoreRunning(); err != nil {
-		return err
-	}
-
-	if *topic == "" {
-		if cfg.SelectCmd == "" {
-			fmt.Println("selectcmd is not set.")
-			return nil
-		}
-		*topic, err = selectNode("topic", cfg.SelectCmd)
-		if err != nil {
-			return err
-		}
-	}
-
-	m, err := execCommandOutput("rostopic type " + *topic)
+func (m *Mode) selectNode(selectcmd string) error {
+	f, err := ioutil.TempFile("", "")
 	if err != nil {
 		return err
 	}
-	msg := string(m)
+	defer os.Remove(f.Name())
+	defer f.Close()
 
-	var args string
-
-	if *datafile != nil {
-		args, err = readDataFromFile(*datafile)
-		if err != nil {
-			return err
-		}
-	} else {
-		proto, err := getProto("msg", msg)
-		if err != nil {
-			return err
-		}
-		args, err = editArgs(proto)
-		if err != nil {
-			return err
-		}
+	err = execCommand(fmt.Sprintf("%s list | %s > %s", m.rosCmd, selectcmd, f.Name()))
+	if err != nil {
+		return err
 	}
+	node, err := readDataFromFile(f)
+	if err != nil {
+		return err
+	}
+	*m.node = node
+	return nil
+}
 
-	return pubTopic(*topic, msg, args)
+func (m *Mode) getProto(target string) ([]byte, error) {
+	content, err := execCommandOutput(fmt.Sprintf("rosmsg-proto %s %s", m.protoMode, target))
+	if err != nil {
+		return nil, err
+	}
+	content = bytes.Trim(content, `"`)
+	return content, nil
+}
+
+func (m *Mode) action() func(c *kingpin.ParseContext) error {
+	return func(c *kingpin.ParseContext) error {
+		var err error
+
+		if err = checkRoscoreRunning(); err != nil {
+			return err
+		}
+
+		if *m.node == "" {
+			if cfg.SelectCmd == "" {
+				fmt.Println("selectcmd is not set.")
+				return nil
+			}
+			err = m.selectNode(cfg.SelectCmd)
+			if err != nil {
+				return err
+			}
+		}
+
+		var argsType string
+		t, err := execCommandOutput(fmt.Sprintf("%s type %s", m.rosCmd, *m.node))
+		if err != nil {
+			return err
+		}
+		argsType = string(t)
+
+		var args string
+		if *datafile != nil {
+			args, err = readDataFromFile(*datafile)
+			if err != nil {
+				return err
+			}
+		} else {
+			proto, err := m.getProto(argsType)
+			if err != nil {
+				return err
+			}
+			args, err = editArgs(proto)
+			if err != nil {
+				return err
+			}
+		}
+
+		if m.name == "service" {
+			err = callService(*m.node, args)
+		} else if m.name == "topic" {
+			err = pubTopic(*m.node, argsType, args)
+		}
+		return err
+	}
 }
 
 func checkRoscoreRunning() error {
@@ -118,30 +131,6 @@ func checkRoscoreRunning() error {
 		return err
 	}
 	return nil
-}
-
-func selectNode(mode, selectcmd string) (string, error) {
-	f, err := ioutil.TempFile("", "")
-	if err != nil {
-		return "", err
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-
-	err = execCommand(fmt.Sprintf("ros%s list | %s > %s", mode, selectcmd, f.Name()))
-	if err != nil {
-		return "", err
-	}
-	return readDataFromFile(f)
-}
-
-func getProto(mode, target string) ([]byte, error) {
-	content, err := execCommandOutput(fmt.Sprintf("rosmsg-proto %s %s", mode, target))
-	if err != nil {
-		return nil, err
-	}
-	content = bytes.Trim(content, `"`)
-	return content, nil
 }
 
 func editArgs(proto []byte) (string, error) {
@@ -180,16 +169,16 @@ func getEditor() string {
 	return editor
 }
 
-func callService(s, a string) error {
-	cmd := fmt.Sprintf(`rosservice call %s "%s"`, s, a)
+func callService(service, args string) error {
+	cmd := fmt.Sprintf(`rosservice call %s "%s"`, service, args)
 	fmt.Println("--- IN ---")
 	fmt.Println(cmd)
 	fmt.Println("--- OUT ---")
 	return execCommand(cmd)
 }
 
-func pubTopic(t, m, a string) error {
-	cmd := fmt.Sprintf(`rostopic pub %s %s "%s"`, t, m, a)
+func pubTopic(topic, msg, args string) error {
+	cmd := fmt.Sprintf(`rostopic pub %s %s "%s"`, topic, msg, args)
 	fmt.Println("--- IN ---")
 	fmt.Println(cmd)
 	fmt.Println("--- OUT ---")
@@ -233,8 +222,8 @@ func execCommandOutput(command string) ([]byte, error) {
 func main() {
 	app.Version(version)
 	app.HelpFlag.Short('h')
-	serviceCmd.Action(serviceAction)
-	topicCmd.Action(topicAction)
+	serviceCmd.Action(modeService.action())
+	topicCmd.Action(modeTopic.action())
 
 	cfg.load()
 
