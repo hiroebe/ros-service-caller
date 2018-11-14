@@ -17,9 +17,11 @@ const (
 var (
 	cfg config
 
-	app      = kingpin.New("ros-service-caller", "Edit args for rosservice-call with editor")
-	datafile = app.Flag("file", "Load yaml file").Short('f').File()
-	service  = app.Arg("service", "ROS service name").String()
+	app        = kingpin.New("ros-service-caller", "Edit args for rosservice-call with editor")
+	serviceCmd = app.Command("service", `execute "rosservice call"`)
+	topicCmd   = app.Command("topic", `execute "rostopic pub"`)
+	datafile   = app.Flag("file", "Load yaml file").Short('f').File()
+	service    = serviceCmd.Arg("service", "ROS service name").String()
 )
 
 func action(c *kingpin.ParseContext) error {
@@ -164,10 +166,22 @@ func execCommandOutput(command string) ([]byte, error) {
 	return bytes.TrimRight(out, "\n"), nil
 }
 
+func serviceAction(c *kingpin.ParseContext) error {
+	fmt.Println("service")
+	return nil
+}
+
+func topicAction(c *kingpin.ParseContext) error {
+	fmt.Println("topic")
+	return nil
+}
+
 func main() {
 	app.Version(version)
 	app.HelpFlag.Short('h')
-	app.Action(action)
+	serviceCmd.Action(serviceAction)
+	topicCmd.Action(topicAction)
+	// app.Action(action)
 
 	cfg.load()
 

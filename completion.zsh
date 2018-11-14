@@ -4,14 +4,26 @@ _ros_service_caller() {
     _arguments \
         {-h,--help}'[show help]' \
         {-f,--file}'[load yaml file]: :->file' \
-        '1: :->service'
+        '1: :->commands' \
+        '2: :->args'
 
     case $state in
         file)
             _path_files -g '*.yaml'
             ;;
-        service)
-            compadd $(rosservice list 2>/dev/null)
+        commands)
+            compadd 'service' 'topic'
+            ;;
+        args)
+            case $words[2] in
+                service)
+                    # compadd $(rosservice list 2>/dev/null)
+                    compadd 'sa' 'sb' 'sc'
+                    ;;
+                topic)
+                    compadd 'ta' 'tb' 'tc'
+                    ;;
+            esac
             ;;
     esac
 }
