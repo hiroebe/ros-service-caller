@@ -22,12 +22,13 @@ var (
 	topicCmd   = app.Command("topic", `execute "rostopic pub"`)
 	datafile   = app.Flag("file", "Load yaml file").Short('f').File()
 	service    = serviceCmd.Arg("service", "ROS service name").String()
+	topic      = topicCmd.Arg("topic", "ROS topic name").String()
 )
 
-func action(c *kingpin.ParseContext) error {
+func serviceAction(c *kingpin.ParseContext) error {
 	var err error
 
-	if err = execCommand("rosnode list 1>/dev/null"); err != nil {
+	if err = checkRoscoreRunning(); err != nil {
 		return err
 	}
 
@@ -36,7 +37,7 @@ func action(c *kingpin.ParseContext) error {
 			fmt.Println("selectcmd is not set.")
 			return nil
 		}
-		*service, err = selectService(cfg.SelectCmd)
+		*service, err = selectNode("service", cfg.SelectCmd)
 		if err != nil {
 			return err
 		}
@@ -46,17 +47,80 @@ func action(c *kingpin.ParseContext) error {
 
 	if *datafile != nil {
 		args, err = readDataFromFile(*datafile)
+		if err != nil {
+			return err
+		}
 	} else {
-		args, err = editArgs()
-	}
-	if err != nil {
-		return err
+		srv, err := execCommandOutput("rosservice type " + *service)
+		if err != nil {
+			return err
+		}
+		proto, err := getProto("srv", string(srv))
+		if err != nil {
+			return err
+		}
+		args, err = editArgs(proto)
+		if err != nil {
+			return err
+		}
 	}
 
 	return callService(*service, args)
 }
 
-func selectService(selectcmd string) (string, error) {
+func topicAction(c *kingpin.ParseContext) error {
+	var err error
+
+	if err = checkRoscoreRunning(); err != nil {
+		return err
+	}
+
+	if *topic == "" {
+		if cfg.SelectCmd == "" {
+			fmt.Println("selectcmd is not set.")
+			return nil
+		}
+		*topic, err = selectNode("topic", cfg.SelectCmd)
+		if err != nil {
+			return err
+		}
+	}
+
+	m, err := execCommandOutput("rostopic type " + *topic)
+	if err != nil {
+		return err
+	}
+	msg := string(m)
+
+	var args string
+
+	if *datafile != nil {
+		args, err = readDataFromFile(*datafile)
+		if err != nil {
+			return err
+		}
+	} else {
+		proto, err := getProto("msg", msg)
+		if err != nil {
+			return err
+		}
+		args, err = editArgs(proto)
+		if err != nil {
+			return err
+		}
+	}
+
+	return pubTopic(*topic, msg, args)
+}
+
+func checkRoscoreRunning() error {
+	if err := execCommand("rosnode list 1>/dev/null"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func selectNode(mode, selectcmd string) (string, error) {
 	f, err := ioutil.TempFile("", "")
 	if err != nil {
 		return "", err
@@ -64,14 +128,23 @@ func selectService(selectcmd string) (string, error) {
 	defer os.Remove(f.Name())
 	defer f.Close()
 
-	err = execCommand(fmt.Sprintf("rosservice list | %s > %s", selectcmd, f.Name()))
+	err = execCommand(fmt.Sprintf("ros%s list | %s > %s", mode, selectcmd, f.Name()))
 	if err != nil {
 		return "", err
 	}
 	return readDataFromFile(f)
 }
 
-func editArgs() (string, error) {
+func getProto(mode, target string) ([]byte, error) {
+	content, err := execCommandOutput(fmt.Sprintf("rosmsg-proto %s %s", mode, target))
+	if err != nil {
+		return nil, err
+	}
+	content = bytes.Trim(content, `"`)
+	return content, nil
+}
+
+func editArgs(proto []byte) (string, error) {
 	f, err := ioutil.TempFile("", "*.yaml")
 	if err != nil {
 		return "", err
@@ -79,10 +152,6 @@ func editArgs() (string, error) {
 	filename := f.Name()
 	defer os.Remove(f.Name())
 
-	proto, err := getSrvProto(*service)
-	if err != nil {
-		return "", err
-	}
 	_, err = f.Write(proto)
 	if err != nil {
 		return "", err
@@ -100,19 +169,6 @@ func editArgs() (string, error) {
 	return readDataFromFileName(filename)
 }
 
-func getSrvProto(service string) ([]byte, error) {
-	srv, err := execCommandOutput("rosservice type " + service)
-	if err != nil {
-		return nil, err
-	}
-	content, err := execCommandOutput("rosmsg-proto srv " + string(srv))
-	if err != nil {
-		return nil, err
-	}
-	content = bytes.Trim(content, `"`)
-	return content, nil
-}
-
 func getEditor() string {
 	editor := cfg.Editor
 	if editor == "" {
@@ -126,6 +182,14 @@ func getEditor() string {
 
 func callService(s, a string) error {
 	cmd := fmt.Sprintf(`rosservice call %s "%s"`, s, a)
+	fmt.Println("--- IN ---")
+	fmt.Println(cmd)
+	fmt.Println("--- OUT ---")
+	return execCommand(cmd)
+}
+
+func pubTopic(t, m, a string) error {
+	cmd := fmt.Sprintf(`rostopic pub %s %s "%s"`, t, m, a)
 	fmt.Println("--- IN ---")
 	fmt.Println(cmd)
 	fmt.Println("--- OUT ---")
@@ -166,22 +230,11 @@ func execCommandOutput(command string) ([]byte, error) {
 	return bytes.TrimRight(out, "\n"), nil
 }
 
-func serviceAction(c *kingpin.ParseContext) error {
-	fmt.Println("service")
-	return nil
-}
-
-func topicAction(c *kingpin.ParseContext) error {
-	fmt.Println("topic")
-	return nil
-}
-
 func main() {
 	app.Version(version)
 	app.HelpFlag.Short('h')
 	serviceCmd.Action(serviceAction)
 	topicCmd.Action(topicAction)
-	// app.Action(action)
 
 	cfg.load()
 

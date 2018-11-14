@@ -17,11 +17,10 @@ _ros_service_caller() {
         args)
             case $words[2] in
                 service)
-                    # compadd $(rosservice list 2>/dev/null)
-                    compadd 'sa' 'sb' 'sc'
+                    compadd $(rosservice list 2>/dev/null)
                     ;;
                 topic)
-                    compadd 'ta' 'tb' 'tc'
+                    compadd $(rostopic list 2>/dev/null)
                     ;;
             esac
             ;;
