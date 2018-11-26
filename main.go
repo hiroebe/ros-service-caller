@@ -23,6 +23,7 @@ var (
 	datafile   = app.Flag("file", "Load yaml file").Short('f').File()
 	service    = serviceCmd.Arg("service", "ROS service name").String()
 	topic      = topicCmd.Arg("topic", "ROS topic name").String()
+	pubOnce    = topicCmd.Flag("once", "Enable once mode").Short('1').Bool()
 
 	modeService = Mode{
 		name:      "service",
@@ -178,7 +179,11 @@ func callService(service, args string) error {
 }
 
 func pubTopic(topic, msg, args string) error {
-	cmd := fmt.Sprintf(`rostopic pub %s %s "%s"`, topic, msg, args)
+	onceFlag := ""
+	if *pubOnce {
+		onceFlag = "-1"
+	}
+	cmd := fmt.Sprintf(`rostopic pub %s %s %s "%s"`, onceFlag, topic, msg, args)
 	fmt.Println("--- IN ---")
 	fmt.Println(cmd)
 	fmt.Println("--- OUT ---")
