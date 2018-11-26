@@ -1,6 +1,6 @@
 # ros-service-caller
 
-`rosservice call`に渡す引数をエディタで編集するためのツール
+`rosservice call`および`rostopic pub`に渡す引数をエディタで編集するためのツール
 
 ## Installation
 
@@ -23,15 +23,22 @@ source {path to ros-service-caller}/completion.zsh
 ## Usage
 
 ```
-$ ros-service-caller <service>
+$ ros-service-caller service <service name>
+$ ros-service-caller topic <topic name>
 ```
 
-サービス名にはタブ補完が使えます．実行するとテキストエディタが開き，`rosservice call`に渡す引数を`yaml`ファイルとして編集することができます．保存してエディタを閉じると，それらの引数を用いて`rosservice call <service>`が実行されます．
+実行するとテキストエディタが開き，`rosservice call`または`rostopic pub`に渡す引数を`yaml`ファイルとして編集することができます．保存してエディタを閉じると，それらの引数を用いて`rosservice call <service>`または`rostopic pub <topic>`が実行されます．
 
 また，引数を既存の`yaml`ファイルから読み込むこともできます．これには`--file, -f`オプションを使います．
 
 ```
 $ ros-service-caller -f data.yaml <service>
+```
+
+`rostopic pub`に渡すオプションとして，`-1,--once`のみ対応しています．
+
+```
+$ ros-service-caller topic <topic> -1
 ```
 
 ## Configuration (Optional)
@@ -48,18 +55,19 @@ selectcmdは，次の2つで動作確認をしています．
 - [fzf](https://github.com/junegunn/fzf)
 - [peco](https://github.com/peco/peco)
 
-これらのコマンドは，別途インストールしておく必要があります．selectcmdを指定していると，`ros-service-caller`を引数なしで実行することができます．
+これらのコマンドは，別途インストールしておく必要があります．selectcmdを指定していると，service名/topic名なしで実行できます．
 
 ```
-$ ros-service-caller
+$ ros-service-caller service
+$ ros-service-caller topic
 ```
 
-実行すると，selectcmdで指定したツールにより，サービス名を絞り込んで選択できます．
+実行すると，selectcmdで指定したツールにより，service名/topic名を絞り込んで選択できます．
 
 また，環境変数`$EDITOR`により，起動するエディタを指定することもできます．
 
 ```
-$ EDITOR=nano ros-service-caller <service>
+$ EDITOR=nano ros-service-caller <service or topic>
 ```
 
 あるいは，`~/.zshrc`に次のように追記します．
