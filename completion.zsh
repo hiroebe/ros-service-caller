@@ -12,7 +12,7 @@ _ros_service_caller() {
             _path_files -g '*.yaml'
             ;;
         commands)
-            compadd 'service' 'topic'
+            compadd 'service' 'topic' 'history'
             ;;
         args)
             case $words[2] in

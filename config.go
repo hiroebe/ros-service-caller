@@ -11,6 +11,7 @@ import (
 type config struct {
 	Editor    string `yaml:"editor"`
 	SelectCmd string `yaml:"selectcmd"`
+	HistFile  string `yaml:"histfile"`
 }
 
 func (c *config) load() {

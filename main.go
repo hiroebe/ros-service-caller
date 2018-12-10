@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"os/exec"
+	"strings"
 
 	"gopkg.in/alecthomas/kingpin.v2"
 )
@@ -20,6 +20,7 @@ var (
 	app        = kingpin.New("ros-service-caller", "Edit args for rosservice-call with editor")
 	serviceCmd = app.Command("service", `execute "rosservice call"`)
 	topicCmd   = app.Command("topic", `execute "rostopic pub"`)
+	histCmd    = app.Command("history", "execute from history")
 	datafile   = app.Flag("file", "Load yaml file").Short('f').File()
 	service    = serviceCmd.Arg("service", "ROS service name").String()
 	topic      = topicCmd.Arg("topic", "ROS topic name").String()
@@ -46,26 +47,6 @@ type Mode struct {
 	rosCmd    string
 }
 
-func (m *Mode) selectNode(selectcmd string) error {
-	f, err := ioutil.TempFile("", "")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-
-	err = execCommand(fmt.Sprintf("%s list | %s > %s", m.rosCmd, selectcmd, f.Name()))
-	if err != nil {
-		return err
-	}
-	node, err := readDataFromFile(f)
-	if err != nil {
-		return err
-	}
-	*m.node = node
-	return nil
-}
-
 func (m *Mode) getProto(target string) ([]byte, error) {
 	content, err := execCommandOutput(fmt.Sprintf("rosmsg-proto %s %s", m.protoMode, target))
 	if err != nil {
@@ -88,7 +69,8 @@ func (m *Mode) action() func(c *kingpin.ParseContext) error {
 				fmt.Println("selectcmd is not set.")
 				return nil
 			}
-			err = m.selectNode(cfg.SelectCmd)
+			listCmd := m.rosCmd + " list"
+			*m.node, err = selectCmdOutput(listCmd, cfg.SelectCmd)
 			if err != nil {
 				return err
 			}
@@ -118,11 +100,24 @@ func (m *Mode) action() func(c *kingpin.ParseContext) error {
 			}
 		}
 
+		var cmd string
 		if m.name == "service" {
-			err = callService(*m.node, args)
+			cmd = buildServiceCmd(*m.node, args)
 		} else if m.name == "topic" {
-			err = pubTopic(*m.node, argsType, args)
+			cmd = buildTopicCmd(*m.node, argsType, args)
 		}
+		fmt.Println("--- IN ---")
+		fmt.Println(cmd)
+		fmt.Println("--- OUT ---")
+		err = execCommand(cmd)
+		if err != nil {
+			return err
+		}
+
+		if cfg.HistFile != "" {
+			err = appendToFile(cfg.HistFile, strings.Replace(cmd, "\n", "\\n", -1))
+		}
+
 		return err
 	}
 }
@@ -170,58 +165,36 @@ func getEditor() string {
 	return editor
 }
 
-func callService(service, args string) error {
-	cmd := fmt.Sprintf(`rosservice call %s "%s"`, service, args)
-	fmt.Println("--- IN ---")
-	fmt.Println(cmd)
-	fmt.Println("--- OUT ---")
-	return execCommand(cmd)
+func buildServiceCmd(service, args string) string {
+	return fmt.Sprintf(`rosservice call %s "%s"`, service, args)
 }
 
-func pubTopic(topic, msg, args string) error {
+func buildTopicCmd(topic, msg, args string) string {
 	onceFlag := ""
 	if *pubOnce {
 		onceFlag = "-1"
 	}
-	cmd := fmt.Sprintf(`rostopic pub %s %s %s "%s"`, onceFlag, topic, msg, args)
+	return fmt.Sprintf(`rostopic pub %s %s %s "%s"`, onceFlag, topic, msg, args)
+}
+
+func histAction(c *kingpin.ParseContext) error {
+	if cfg.HistFile == "" {
+		fmt.Println("histfile is not set.")
+		return nil
+	}
+	if cfg.SelectCmd == "" {
+		fmt.Println("selectcmd is not set.")
+		return nil
+	}
+	cmd, err := selectCmdOutput("cat "+cfg.HistFile, cfg.SelectCmd)
+	if err != nil {
+		return err
+	}
+	cmd = strings.Replace(cmd, "\\n", "\n", -1)
 	fmt.Println("--- IN ---")
 	fmt.Println(cmd)
 	fmt.Println("--- OUT ---")
 	return execCommand(cmd)
-}
-
-func readDataFromFileName(filename string) (string, error) {
-	data, err := ioutil.ReadFile(filename)
-	if err != nil {
-		return "", err
-	}
-	data = bytes.TrimRight(data, "\n")
-	return string(data), nil
-}
-
-func readDataFromFile(f *os.File) (string, error) {
-	data, err := ioutil.ReadAll(f)
-	if err != nil {
-		return "", err
-	}
-	data = bytes.TrimRight(data, "\n")
-	return string(data), nil
-}
-
-func execCommand(command string) error {
-	cmd := exec.Command("sh", "-c", command)
-	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
-	cmd.Stdin = os.Stdin
-	return cmd.Run()
-}
-
-func execCommandOutput(command string) ([]byte, error) {
-	out, err := exec.Command("sh", "-c", command).Output()
-	if err != nil {
-		return nil, err
-	}
-	return bytes.TrimRight(out, "\n"), nil
 }
 
 func main() {
@@ -229,6 +202,7 @@ func main() {
 	app.HelpFlag.Short('h')
 	serviceCmd.Action(modeService.action())
 	topicCmd.Action(modeTopic.action())
+	histCmd.Action(histAction)
 
 	cfg.load()
 
