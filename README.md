@@ -43,35 +43,36 @@ $ ros-service-caller topic <topic> -1
 
 ## Configuration (Optional)
 
-`~/.config/ros-service-caller/config.yaml`に設定を書きます．今のところ，設定項目は以下の2つだけです．
+`~/.config/ros-service-caller/config.yaml`に設定を書きます．設定可能な項目は以下の3つです．
 
 ```yaml
-editor: vim     # 起動するエディタ(デフォルトはvim)
-selectcmd: fzf  # filterを行うコマンド
+editor: vim                              # 起動するエディタ(デフォルトはvim)
+selectcmd: fzf                           # filterを行うコマンド
+histfile: ~/.ros_service_caller_history  # historyを書き込むファイル
 ```
 
-selectcmdは，次の2つで動作確認をしています．
+`selectcmd`は，次の2つで動作確認をしています．
 
 - [fzf](https://github.com/junegunn/fzf)
 - [peco](https://github.com/peco/peco)
 
-これらのコマンドは，別途インストールしておく必要があります．selectcmdを指定していると，service名/topic名なしで実行できます．
+これらのコマンドは，別途インストールしておく必要があります．`selectcmd`を指定していると，service名/topic名なしで実行できます．
 
 ```
 $ ros-service-caller service
 $ ros-service-caller topic
 ```
 
-実行すると，selectcmdで指定したツールにより，service名/topic名を絞り込んで選択できます．
+実行すると，`selectcmd`で指定したツールにより，service名/topic名を絞り込んで選択できます．
 
-また，環境変数`$EDITOR`により，起動するエディタを指定することもできます．
-
-```
-$ EDITOR=nano ros-service-caller <service or topic>
-```
-
-あるいは，`~/.zshrc`に次のように追記します．
+`histfile`を設定しておくと，ros-service-callerで実行したコマンドの履歴が記録され，次のコマンドで再度呼び出すことができます．
 
 ```
-export EDITOR=nano
+$ ros-service-caller history
+```
+
+`selectcmd`にオプションを指定することで，プレビューを表示することもできます．以下はその例です．
+
+```yaml
+selectcmd: fzf --preview="echo {}" --preview-window=up:wrap
 ```
